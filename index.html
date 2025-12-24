@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>無限循環鬧鐘</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700&family=Roboto+Mono:wght@500&display=swap');
+
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+            background-color: #1a1a1a;
+            color: #ffffff;
+            transition: background-color 0.3s;
+        }
+
+        .timer-font {
+            font-family: 'Roboto Mono', monospace;
+        }
+
+        /* 紅色閃爍動畫 */
+        @keyframes flashRed {
+            0% { background-color: #ef4444; }
+            50% { background-color: #000000; }
+            100% { background-color: #ef4444; }
+        }
+
+        .alarm-active {
+            animation: flashRed 0.5s infinite;
+        }
+
+        .alarm-active .content-container {
+            background-color: rgba(0, 0, 0, 0.8);
+            border-radius: 1rem;
+            padding: 2rem;
+        }
+
+        /* 隱藏數字輸入框的箭頭 */
+        input[type=number]::-webkit-inner-spin-button, 
+        input[type=number]::-webkit-outer-spin-button { 
+            -webkit-appearance: none; 
+            margin: 0; 
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col items-center justify-center p-4">
+
+    <!-- 主容器 -->
+    <div id="mainContainer" class="w-full max-w-md bg-gray-800 rounded-2xl shadow-2xl overflow-hidden p-6 content-container">
+        
+        <!-- 標題 -->
+        <div class="text-center mb-6">
+            <h1 class="text-2xl font-bold text-yellow-500"><i class="fas fa-infinity mr-2"></i>無限循環鬧鐘</h1>
+            <p class="text-gray-400 text-sm mt-1">設定多個時間段，自動循環計時</p>
+        </div>
+
+        <!-- 設定區域 (當計時器未開始時顯示) -->
+        <div id="setupSection">
+            <div class="flex space-x-2 mb-4">
+                <div class="w-1/2">
+                    <label class="block text-xs text-gray-400 mb-1">分鐘</label>
+                    <input type="number" id="inputMin" value="0" min="0" class="w-full bg-gray-700 text-white text-center text-xl p-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500 border border-gray-600" placeholder="0">
+                </div>
+                <div class="w-1/2">
+                    <label class="block text-xs text-gray-400 mb-1">秒數</label>
+                    <input type="number" id="inputSec" value="30" min="0" class="w-full bg-gray-700 text-white text-center text-xl p-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500 border border-gray-600" placeholder="0">
+                </div>
+            </div>
+
+            <button onclick="addTimer()" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-4 rounded-lg transition mb-6 shadow-lg active:transform active:scale-95">
+                <i class="fas fa-plus mr-2"></i>加入時間段
+            </button>
+
+            <!-- 時間段列表 -->
+            <div class="mb-6">
+                <h3 class="text-gray-400 text-sm mb-2 font-bold uppercase tracking-wider">循環清單</h3>
+                <ul id="timerList" class="space-y-2 max-h-48 overflow-y-auto pr-1 custom-scrollbar">
+                    <!-- 列表項目會加在這裡 -->
+                    <li id="emptyMsg" class="text-center text-gray-500 italic py-4">目前沒有設定時間，請在上輸入並加入。</li>
+                </ul>
+            </div>
+
+            <button id="startBtn" onclick="startSequence()" disabled class="w-full bg-green-600 hover:bg-green-500 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold py-4 px-4 rounded-xl transition shadow-lg text-lg">
+                <i class="fas fa-play mr-2"></i>開始循環
+            </button>
+        </div>
+
+        <!-- 執行區域 (當計時器執行中顯示) -->
+        <div id="runSection" class="hidden text-center">
+            
+            <div class="mb-2 text-yellow-400 font-bold text-lg">
+                正在執行：第 <span id="currentStepDisplay">1</span> 段 <span class="text-xs text-gray-400">(共 <span id="totalStepsDisplay"></span> 段)</span>
+            </div>
+
+            <!-- 大計時器 -->
+            <div id="bigTimer" class="timer-font text-7xl md:text-8xl font-bold text-white mb-8 tracking-wider">
+                00:00
+            </div>
+
+            <div id="alarmMessage" class="hidden text-red-500 font-bold text-2xl mb-4 animate-bounce">
+                <i class="fas fa-bell mr-2"></i>時間到！
+            </div>
+
+            <!-- 進度條 -->
+            <div class="w-full bg-gray-700 h-2 rounded-full mb-8 overflow-hidden">
+                <div id="progressBar" class="bg-yellow-500 h-2 rounded-full transition-all duration-1000 ease-linear" style="width: 100%"></div>
+            </div>
+            
+            <!-- 下一段預告 -->
+            <div class="bg-gray-700/50 rounded-lg p-3 mb-8">
+                <p class="text-gray-400 text-sm">下一段時間</p>
+                <p id="nextTimerDisplay" class="text-xl font-bold text-white">--:--</p>
+            </div>
+
+            <!-- 控制按鈕 -->
+            <div class="flex space-x-4 justify-center">
+                <button onclick="togglePause()" id="pauseBtn" class="flex-1 bg-yellow-600 hover:bg-yellow-500 text-white font-bold py-3 px-4 rounded-lg transition">
+                    <i class="fas fa-pause mr-2"></i>暫停
+                </button>
+                <button onclick="resetTimers()" class="flex-1 bg-red-600 hover:bg-red-500 text-white font-bold py-3 px-4 rounded-lg transition">
+                    <i class="fas fa-stop mr-2"></i>停止重置
+                </button>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- 音效提示 (隱藏) -->
+    <div class="fixed bottom-4 text-gray-500 text-xs text-center w-full">
+        請確保裝置未靜音以聽到警示聲
+    </div>
+
+    <script>
+        // --- 狀態變數 ---
+        let timers = []; // 儲存 {m: 分, s: 秒, totalSec: 總秒數}
+        let currentIndex = 0; // 目前跑到第幾個
+        let timeLeft = 0; // 當前倒數剩餘秒數
+        let isRunning = false;
+        let isPaused = false;
+        let countdownInterval = null;
+        let alarmTimeout = null;
+        let isAlarming = false; // 是否正在響鈴
+        let audioCtx = null; // Web Audio API Context
+        let oscillator = null;
+
+        // --- DOM 元素 ---
+        const inputMin = document.getElementById('inputMin');
+        const inputSec = document.getElementById('inputSec');
+        const timerList = document.getElementById('timerList');
+        const emptyMsg = document.getElementById('emptyMsg');
+        const startBtn = document.getElementById('startBtn');
+        const setupSection = document.getElementById('setupSection');
+        const runSection = document.getElementById('runSection');
+        const bigTimer = document.getElementById('bigTimer');
+        const currentStepDisplay = document.getElementById('currentStepDisplay');
+        const totalStepsDisplay = document.getElementById('totalStepsDisplay');
+        const nextTimerDisplay = document.getElementById('nextTimerDisplay');
+        const progressBar = document.getElementById('progressBar');
+        const pauseBtn = document.getElementById('pauseBtn');
+        const alarmMessage = document.getElementById('alarmMessage');
+
+        // --- 功能函數 ---
+
+        // 格式化時間 mm:ss
+        function formatTime(seconds) {
+            const m = Math.floor(seconds / 60);
+            const s = seconds % 60;
+            return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+        }
+
+        // 加入時間段
+        function addTimer() {
+            const m = parseInt(inputMin.value) || 0;
+            const s = parseInt(inputSec.value) || 0;
+            const total = m * 60 + s;
+
+            if (total <= 0) {
+                alert("請設定大於 0 的時間！");
+                return;
+            }
+
+            timers.push({ m, s, totalSec: total });
+            renderList();
+            
+            // 重置輸入框
+            inputMin.value = 0;
+            inputSec.value = 30;
+            checkStartBtn();
+        }
+
+        // 移除時間段
+        function removeTimer(index) {
+            timers.splice(index, 1);
+            renderList();
+            checkStartBtn();
+        }
+
+        // 渲染列表
+        function renderList() {
+            timerList.innerHTML = '';
+            if (timers.length === 0) {
+                timerList.appendChild(emptyMsg);
+                return;
+            }
+
+            timers.forEach((t, index) => {
+                const li = document.createElement('li');
+                li.className = "flex justify-between items-center bg-gray-700 p-3 rounded-lg border-l-4 border-blue-500";
+                li.innerHTML = `
+                    <span class="font-mono text-lg font-bold">#${index + 1} - ${formatTime(t.totalSec)}</span>
+                    <button onclick="removeTimer(${index})" class="text-red-400 hover:text-red-300 transition">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                `;
+                timerList.appendChild(li);
+            });
+        }
+
+        // 檢查是否可開始
+        function checkStartBtn() {
+            startBtn.disabled = timers.length === 0;
+            if (timers.length > 0) {
+                startBtn.classList.remove('opacity-50');
+            } else {
+                startBtn.classList.add('opacity-50');
+            }
+        }
+
+        // --- 計時核心邏輯 ---
+
+        // 初始化 AudioContext (必須由使用者互動觸發)
+        function initAudio() {
+            if (!audioCtx) {
+                const AudioContext = window.AudioContext || window.webkitAudioContext;
+                audioCtx = new AudioContext();
+            }
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+        }
+
+        // 播放嗶嗶聲 (使用 Oscillator 產生聲音)
+        function playBeep() {
+            if (!audioCtx) initAudio();
+
+            const osc = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+
+            osc.type = 'square'; // 方波聲音比較像電子鬧鐘
+            osc.frequency.setValueAtTime(880, audioCtx.currentTime); // A5 note
+            
+            // 嗶嗶聲節奏
+            gainNode.gain.setValueAtTime(0.5, audioCtx.currentTime);
+            gainNode.gain.setValueAtTime(0, audioCtx.currentTime + 0.2); // 0.2秒後靜音
+            gainNode.gain.setValueAtTime(0.5, audioCtx.currentTime + 0.4); // 0.4秒後再響
+            gainNode.gain.setValueAtTime(0, audioCtx.currentTime + 0.6);
+            gainNode.gain.setValueAtTime(0.5, audioCtx.currentTime + 0.8);
+            gainNode.gain.setValueAtTime(0, audioCtx.currentTime + 1.0);
+            
+            // 循環播放效果
+            // 在這裡我們簡單地讓它持續響，直到被 stopAlarm 函數停止
+            // 但為了模仿簡單的電子音，我們用 setInterval 簡單處理持續的嗶嗶聲
+        }
+
+        let beepInterval = null;
+
+        function startAlarmSound() {
+            initAudio();
+            // 立即響一次
+            playSingleBeep();
+            // 每 800ms 響一次
+            beepInterval = setInterval(playSingleBeep, 800);
+        }
+
+        function playSingleBeep() {
+            if(!audioCtx) return;
+            const osc = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+            
+            osc.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+
+            osc.type = 'square';
+            osc.frequency.value = 1000; // 頻率 1000Hz
+            
+            // 快速淡入淡出避免爆音
+            const now = audioCtx.currentTime;
+            gainNode.gain.setValueAtTime(0, now);
+            gainNode.gain.linearRampToValueAtTime(0.3, now + 0.05);
+            gainNode.gain.linearRampToValueAtTime(0, now + 0.2);
+            
+            osc.start(now);
+            osc.stop(now + 0.25);
+
+            // 第二聲 (雙嗶聲)
+            const osc2 = audioCtx.createOscillator();
+            const gainNode2 = audioCtx.createGain();
+            osc2.connect(gainNode2);
+            gainNode2.connect(audioCtx.destination);
+            osc2.type = 'square';
+            osc2.frequency.value = 1000;
+            
+            gainNode2.gain.setValueAtTime(0, now + 0.3);
+            gainNode2.gain.linearRampToValueAtTime(0.3, now + 0.35);
+            gainNode2.gain.linearRampToValueAtTime(0, now + 0.5);
+
+            osc2.start(now + 0.3);
+            osc2.stop(now + 0.55);
+        }
+
+        function stopAlarmSound() {
+            if (beepInterval) {
+                clearInterval(beepInterval);
+                beepInterval = null;
+            }
+        }
+
+        // 開始整個循環
+        function startSequence() {
+            initAudio(); // 初始化音效引擎
+            currentIndex = 0;
+            isRunning = true;
+            isPaused = false;
+            
+            setupSection.classList.add('hidden');
+            runSection.classList.remove('hidden');
+            totalStepsDisplay.textContent = timers.length;
+
+            loadTimer(currentIndex);
+            startCountdown();
+        }
+
+        // 載入特定的時間段
+        function loadTimer(index) {
+            const timerData = timers[index];
+            timeLeft = timerData.totalSec;
+            
+            currentStepDisplay.textContent = index + 1;
+            updateDisplay();
+
+            // 設定下一段的顯示文字
+            const nextIndex = (index + 1) % timers.length;
+            nextTimerDisplay.textContent = formatTime(timers[nextIndex].totalSec);
+            
+            // 重置進度條
+            progressBar.style.width = '100%';
+            progressBar.classList.remove('bg-red-500');
+            progressBar.classList.add('bg-yellow-500');
+        }
+
+        function updateDisplay() {
+            bigTimer.textContent = formatTime(timeLeft);
+            
+            // 更新進度條
+            const currentTotal = timers[currentIndex].totalSec;
+            const percentage = (timeLeft / currentTotal) * 100;
+            progressBar.style.width = `${percentage}%`;
+        }
+
+        function startCountdown() {
+            if (countdownInterval) clearInterval(countdownInterval);
+
+            countdownInterval = setInterval(() => {
+                if (!isPaused && !isAlarming) {
+                    timeLeft--;
+                    updateDisplay();
+
+                    if (timeLeft < 0) {
+                        triggerAlarm();
+                    }
+                }
+            }, 1000);
+        }
+
+        function triggerAlarm() {
+            // 停止倒數計時器
+            clearInterval(countdownInterval);
+            timeLeft = 0;
+            bigTimer.textContent = "00:00";
+            
+            isAlarming = true;
+            
+            // 視覺效果：全螢幕紅光
+            document.body.classList.add('alarm-active');
+            alarmMessage.classList.remove('hidden');
+            bigTimer.classList.add('text-red-500');
+            progressBar.classList.remove('bg-yellow-500');
+            progressBar.classList.add('bg-red-500');
+            progressBar.style.width = "100%";
+
+            // 聲音效果
+            startAlarmSound();
+
+            // 5秒後自動進入下一段
+            alarmTimeout = setTimeout(() => {
+                nextPhase();
+            }, 5000);
+        }
+
+        function nextPhase() {
+            // 停止警報
+            stopAlarm(); 
+
+            // 計算下一個索引
+            currentIndex = (currentIndex + 1) % timers.length;
+            
+            // 載入並開始
+            loadTimer(currentIndex);
+            startCountdown();
+        }
+
+        function stopAlarm() {
+            isAlarming = false;
+            stopAlarmSound();
+            if (alarmTimeout) clearTimeout(alarmTimeout);
+            
+            document.body.classList.remove('alarm-active');
+            alarmMessage.classList.add('hidden');
+            bigTimer.classList.remove('text-red-500');
+        }
+
+        function togglePause() {
+            // 如果正在響鈴，按暫停會直接跳過剩餘響鈴時間並暫停在下一段的開頭(或直接停止響鈴並暫停)
+            if (isAlarming) {
+                stopAlarm();
+                nextPhase(); // 進入下一段
+                isPaused = true; // 然後暫停
+                pauseBtn.innerHTML = '<i class="fas fa-play mr-2"></i>繼續';
+                pauseBtn.classList.remove('bg-yellow-600');
+                pauseBtn.classList.add('bg-green-600');
+                return;
+            }
+
+            isPaused = !isPaused;
+            if (isPaused) {
+                pauseBtn.innerHTML = '<i class="fas fa-play mr-2"></i>繼續';
+                pauseBtn.classList.remove('bg-yellow-600', 'hover:bg-yellow-500');
+                pauseBtn.classList.add('bg-green-600', 'hover:bg-green-500');
+            } else {
+                pauseBtn.innerHTML = '<i class="fas fa-pause mr-2"></i>暫停';
+                pauseBtn.classList.remove('bg-green-600', 'hover:bg-green-500');
+                pauseBtn.classList.add('bg-yellow-600', 'hover:bg-yellow-500');
+            }
+        }
+
+        function resetTimers() {
+            isRunning = false;
+            isPaused = false;
+            stopAlarm();
+            if (countdownInterval) clearInterval(countdownInterval);
+            
+            setupSection.classList.remove('hidden');
+            runSection.classList.add('hidden');
+            
+            // 重置按鈕狀態
+            pauseBtn.innerHTML = '<i class="fas fa-pause mr-2"></i>暫停';
+            pauseBtn.classList.remove('bg-green-600');
+            pauseBtn.classList.add('bg-yellow-600');
+        }
+
+    </script>
+</body>
+</html>
